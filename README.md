@@ -137,7 +137,7 @@ In automatic multi-pattern mode (default, no `-r`), all of the following pattern
 | SMTP bruteforce | Failed SASL auth (postfix) | 5 |
 | IMAP bruteforce | Failed logins (dovecot) | 5 |
 
-Patterns are defined as a bash array at the top of the script. To disable one, comment out the corresponding line. To add a new one, append an entry in the format `"name|regex|ip_group|threshold"`.
+Patterns are defined as four parallel bash arrays at the top of the script (`PATTERN_NAMES`, `PATTERN_REGEX`, `PATTERN_IPPOS`, `PATTERN_LIMIT`). To disable a pattern comment out its entry in all four arrays. To add a new one, append a line to each array at the same index.
 
 ---
 
@@ -146,10 +146,13 @@ Patterns are defined as a bash array at the top of the script. To disable one, c
 The script automatically selects the best available log source:
 
 ```
-1. journalctl available AND has lines for the unit?  →  use journalctl
-2. /var/log/auth.log exists?                         →  use auth.log
-3. Neither?                                          →  error with guidance
+journalctl ≥50 lines  +  auth.log exists  →  read BOTH, deduplicated (sort -u)
+journalctl ≥50 lines  +  no auth.log      →  journalctl only
+no journalctl          +  auth.log exists  →  auth.log only
+neither available                          →  error with guidance
 ```
+
+On Debian/Ubuntu with rsyslog active, SSH/PAM/sudo logs are intercepted by rsyslog and written to `/var/log/auth.log` before journald sees them. Reading only the journal would miss all authentication events. In `both` mode the two sources are merged and deduplicated so each event is counted exactly once.
 
 Override with `-j <unit>` (force journalctl) or `-f <file>` (force file).
 
@@ -237,24 +240,32 @@ sudo ./log2iptables.sh -x 1 -d 87.251.64.147
 [DRY-RUN] No changes will be applied. Use -x 1 for production mode.
 
 Whitelist: 1 address(es) loaded from /etc/hosts.allow.
-Log source: journalctl (all units, auto-detect: systemd active with 48291 lines)
-Log lines read: 48291
+Log source: journalctl + /var/log/auth.log (auto-detect: reading both to ensure full coverage)
+Log lines read: 19284 (source: both)
 
 [Multi-pattern automatic mode — 9 active patterns]
 
 [Pattern] SSH bruteforce (threshold: 5) — 3 unique IP(s) seen
 [Found] 87.251.64.147 matched 20 time(s) — above threshold
-   `-- [Skip ] already present in iptables.
-   `-- [Skip ] already present in /etc/hosts.deny.
+   `-- [Skip ] 87.251.64.147 already present in iptables.
+   `-- [Skip ] 87.251.64.147 already present in /etc/hosts.deny.
 [Watch] 12.34.56.78 matched 2 time(s) — below threshold (5)
 
 [Pattern] SSH no auth (threshold: 10) — 0 unique IP(s) seen
    `-- [Clean] No matches found.
 
-[Pattern] PAM failure (threshold: 5) — 1 unique IP(s) seen
+[Pattern] PAM failure (threshold: 5) — 3 unique IP(s) seen
 [Found] 87.251.64.145 matched 16 time(s) — above threshold
    `-- [Add  ] 87.251.64.145 added to iptables (-j DROP) [DRY-RUN]
    `-- [Add  ] 87.251.64.145 added to /etc/hosts.deny [DRY-RUN]
+
+[Currently blocked IPs]
+   5 IP(s) currently blocked:
+   [Block] 87.251.64.149  (iptables)
+   [Block] 87.251.64.147  (iptables + hosts.deny)
+   [Block] 87.251.64.145  (iptables + hosts.deny)
+   [Block] 87.251.64.144  (iptables + hosts.deny)
+   [Block] 80.66.66.70    (iptables)
 
 Done.
 ```
@@ -296,13 +307,20 @@ Version 2 was a complete audit and rewrite of the internals, keeping full backwa
 - Dry-run mode now consistently prevents all writes (iptables, hosts.deny, hosts.deny)
 
 **v2.1** replaced the single-pattern model with automatic multi-pattern detection:
-- Introduced `PATTERNS` array: each entry is a self-contained `name|regex|group|threshold` tuple
+- Introduced four parallel arrays (`PATTERN_NAMES`, `PATTERN_REGEX`, `PATTERN_IPPOS`, `PATTERN_LIMIT`) replacing the pipe-delimited `PATTERNS` array — the `|` separator conflicted with regex alternations like `(f|F)` and `(\=| )`, silently corrupting patterns at parse time
 - Log file is read once into memory (`mapfile`), all patterns applied on the same data
 - Default patterns cover SSH, sudo, PAM, Nikto, 404 floods, FTP, SMTP, IMAP/POP3
 - Per-pattern thresholds configurable independently; `-l` overrides all at once
+- `run_pattern` now always prints results: `[Found]` above threshold, `[Watch]` below threshold, `[Clean]` if no matches — no more silent output
+- Added `[Currently blocked IPs]` section: reads directly from `iptables` and `hosts.deny` and reports all currently blocked IPs with their blocking source, shown on every run regardless of log content
 - Legacy single-pattern mode (`-r/-p/-l`) fully preserved for backward compatibility
 - `-e` template flag removed (superseded by always-on multi-pattern mode)
-- Help output dynamically lists active patterns and their thresholds
+- Full English translation of all output messages
+
+**v2.2** fixed log source coverage on Debian/Ubuntu:
+- Auto-detect now reads `journalctl` + `auth.log` simultaneously in `both` mode; on Debian with rsyslog active, SSH/PAM/sudo logs are intercepted before journald sees them, causing journal-only mode to return zero auth matches despite 18000+ system lines
+- Merged sources are deduplicated via `sort -u` so each event is counted exactly once
+- Log lines output now includes the effective source mode (`source: both`, `file`, etc.)
 
 ---
 
