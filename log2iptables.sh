@@ -25,41 +25,60 @@ LOG_SOURCE="auto";
 JOURNALCTL_UNIT="ssh";
 
 # ---------------------------------------------------------------------------
-# MULTI-PATTERN: ogni entry è "nome|regex|gruppo_ip|soglia"
-# Tutti i pattern vengono applicati sulla stessa sorgente log.
-# Per disabilitarne uno, commentare la riga corrispondente.
+# MULTI-PATTERN: quattro array paralleli (stesso indice = stesso pattern).
+# Aggiungere un pattern = aggiungere una entry in ciascuno dei 4 array.
+# Per disabilitarne uno, commentare la riga corrispondente in tutti e 4.
 # ---------------------------------------------------------------------------
-PATTERNS=(
-	# SSH: password/autenticazione fallita (bruteforce)
-	"SSH bruteforce|sshd.*(f|F)ail.*(\=| )([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|3|5"
+PATTERN_NAMES=(
+	"SSH bruteforce"
+	"SSH no auth"
+	"sudo abuse"
+	"PAM failure"
+	"Web scan Nikto"
+	"Web scan 404"
+	"FTP bruteforce"
+	"SMTP bruteforce"
+	"IMAP bruteforce"
+)
 
-	# SSH: connessioni senza identificazione (scanner di porte)
-	"SSH no auth|sshd.*Did not receive identification string.*from ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|1|10"
+PATTERN_REGEX=(
+	'sshd.*(f|F)ail.*(\=| )([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+	'sshd.*Did not receive identification string.*from ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+	'sudo.*authentication failure.*rhost=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+	'pam_unix.*authentication failure.*rhost=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+	'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}).*Nikto'
+	'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}).* 404 '
+	'ftpd.*failed login.*from ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+	'postfix.*SASL .* authentication failed.*\[([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\]'
+	'dovecot.*authentication failure.*rip=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+)
 
-	# sudo: tentativi di escalation non autorizzati
-	"sudo abuse|sudo.*authentication failure.*rhost=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|1|3"
+PATTERN_IPPOS=(
+	3   # SSH bruteforce:  gruppo 3 = IP
+	1   # SSH no auth:     gruppo 1 = IP
+	1   # sudo abuse:      gruppo 1 = IP
+	1   # PAM failure:     gruppo 1 = IP
+	1   # Web scan Nikto:  gruppo 1 = IP
+	1   # Web scan 404:    gruppo 1 = IP
+	1   # FTP bruteforce:  gruppo 1 = IP
+	1   # SMTP bruteforce: gruppo 1 = IP
+	1   # IMAP bruteforce: gruppo 1 = IP
+)
 
-	# PAM: autenticazione generica fallita con IP
-	"PAM failure|pam_unix.*authentication failure.*rhost=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|1|5"
-
-	# Web: scanner Nikto (nginx/apache)
-	"Web scan Nikto|([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}).*Nikto|1|1"
-
-	# Web: flood di 404 (scanner generici)
-	"Web scan 404|([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}).* 404 |1|20"
-
-	# FTP: login falliti (vsftpd, proftpd)
-	"FTP bruteforce|ftpd.*failed login.*from ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|1|5"
-
-	# SMTP: autenticazioni SASL fallite (postfix)
-	"SMTP bruteforce|postfix.*SASL .* authentication failed.*\[([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\]|1|5"
-
-	# IMAP/POP3: login falliti (dovecot)
-	"IMAP bruteforce|dovecot.*authentication failure.*rip=([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})|1|5"
+PATTERN_LIMIT=(
+	5   # SSH bruteforce
+	10  # SSH no auth
+	3   # sudo abuse
+	5   # PAM failure
+	1   # Web scan Nikto
+	20  # Web scan 404
+	5   # FTP bruteforce
+	5   # SMTP bruteforce
+	5   # IMAP bruteforce
 )
 
 # Soglia globale: se > 0 sovrascrive la soglia di ogni singolo pattern (-l N).
-# 0 = usa le soglie per-pattern definite nell'array PATTERNS.
+# 0 = usa le soglie per-pattern definite in the PATTERN_* arrays.
 LIMIT_OVERRIDE=0;
 
 # Manteniamo REGEXP/REGEXPIPPOS/LIMIT per retrocompatibilità con -r/-p/-l
@@ -446,9 +465,8 @@ while getopts :hf:r:p:l:a:i:c:t:T:C:x:u:U:H:X:m:M:d:j:6 OPTION; do
 			echo "  -l <number>     Match threshold (required in legacy mode)"
 			echo ""
 			echo "Active automatic patterns (default mode, without -r):"
-			for entry in "${PATTERNS[@]}"; do
-				IFS='|' read -r pname _ _ plimit <<< "$entry";
-				printf "  %-20s threshold: %s\n" "$pname" "$plimit";
+			for i in "${!PATTERN_NAMES[@]}"; do
+				printf "  %-20s threshold: %s\n" "${PATTERN_NAMES[$i]}" "${PATTERN_LIMIT[$i]}";
 			done
 			echo ""
 			echo "System functions:"
@@ -544,24 +562,31 @@ detect_log_source() {
 	fi
 
 	# --- AUTO-DETECT ---
-	# In auto mode: journalctl senza -u (cattura tutti i servizi di sistema).
-	# Consideriamo "popolato" solo se ha almeno 50 righe (esclude sistemi
-	# con solo messaggi di boot e nessun log di autenticazione reale).
-	local jctl_ok=0;
-	if [ -n "$binjournalctl" ]; then
-		local linecount;
-		linecount=$($binjournalctl --no-pager -q 2>/dev/null | wc -l);
-		if [ "$linecount" -ge 50 ]; then
-			jctl_ok=1;
-		fi
-	fi
+	# Strategia: usa ENTRAMBE le sorgenti se disponibili (journalctl + auth.log),
+	# così non perdiamo nulla indipendentemente da come rsyslog/journald sono
+	# configurati su questa specifica distro/versione.
+	# Su Debian con rsyslog: i log SSH vanno in auth.log, il journal è parziale.
+	# Su sistemi puri systemd: tutto è nel journal.
+	# Leggendo entrambi e deduplicando, copriamo tutti i casi.
+	local have_journal=0;
+	local have_file=0;
+	local jlines=0;
 
-	if [ "$jctl_ok" -eq 1 ]; then
+	if [ -n "$binjournalctl" ]; then
+		jlines=$($binjournalctl --no-pager -q 2>/dev/null | wc -l);
+		[ "$jlines" -ge 50 ] && have_journal=1;
+	fi
+	[ -f "$LOGFILE" ] && have_file=1;
+
+	if [ "$have_journal" -eq 1 ] && [ "$have_file" -eq 1 ]; then
+		LOG_SOURCE_EFFECTIVE="both";
+		echo -e "Log source: ${COL1}journalctl${COL0} + ${COL1}${LOGFILE}${COL0} (auto-detect: reading both to ensure full coverage)";
+	elif [ "$have_journal" -eq 1 ]; then
 		LOG_SOURCE_EFFECTIVE="journalctl-all";
-		echo -e "Log source: ${COL1}journalctl${COL0} (all units, auto-detect: systemd active with ${linecount} lines)";
-	elif [ -f "$LOGFILE" ]; then
+		echo -e "Log source: ${COL1}journalctl${COL0} (all units, auto-detect: ${jlines} lines, no auth.log found)";
+	elif [ "$have_file" -eq 1 ]; then
 		LOG_SOURCE_EFFECTIVE="file";
-		echo -e "Log source: ${COL1}file${COL0} ${LOGFILE} (auto-detect: journalctl absent/empty, fallback to auth.log)";
+		echo -e "Log source: ${COL1}file${COL0} ${LOGFILE} (auto-detect: journalctl absent/empty, using auth.log)";
 	else
 		echo -e "${COL3}ERROR:${COL0} Auto-detect failed: journalctl empty/absent and ${LOGFILE} not found." >&2;
 		echo -e "         Use -j <unit> to specify a journalctl unit or -f <file> for a log file." >&2;
@@ -570,15 +595,27 @@ detect_log_source() {
 }
 
 read_log() {
-	if [ "$LOG_SOURCE_EFFECTIVE" = "journalctl" ]; then
-		# Forzato via -j: usa l'unit specificata
-		$binjournalctl -u "$JOURNALCTL_UNIT" --no-pager -q 2>/dev/null;
-	elif [ "$LOG_SOURCE_EFFECTIVE" = "journalctl-all" ]; then
-		# Auto-detect: tutte le unit (cattura sshd, sudo, PAM, postfix, ecc.)
-		$binjournalctl --no-pager -q 2>/dev/null;
-	else
-		cat "$LOGFILE";
-	fi
+	case "$LOG_SOURCE_EFFECTIVE" in
+		journalctl)
+			# Forzato via -j: usa l'unit specificata
+			$binjournalctl -u "$JOURNALCTL_UNIT" --no-pager -q 2>/dev/null;
+			;;
+		journalctl-all)
+			# Auto-detect solo journal (no auth.log)
+			$binjournalctl --no-pager -q 2>/dev/null;
+			;;
+		file)
+			cat "$LOGFILE";
+			;;
+		both)
+			# Legge entrambi e deduplica le righe identiche.
+			# Il sort -u rimuove i duplicati esatti (righe presenti in entrambe le sorgenti).
+			{
+				$binjournalctl --no-pager -q 2>/dev/null;
+				cat "$LOGFILE";
+			} | sort -u;
+			;;
+	esac
 }
 
 detect_log_source;
@@ -587,7 +624,7 @@ detect_log_source;
 # Leggi il log una volta sola in memoria (evita N letture per N pattern)
 # ---------------------------------------------------------------------------
 mapfile -t LOG_LINES < <(read_log)
-echo -e "Log lines read: ${#LOG_LINES[@]}\n";
+echo -e "Log lines read: ${#LOG_LINES[@]} (source: ${LOG_SOURCE_EFFECTIVE})\n";
 
 # ---------------------------------------------------------------------------
 # MULTI-PATTERN PARSING
@@ -640,10 +677,49 @@ if [ -n "$REGEXP" ]; then
 	echo -e "[${COL2}Single-pattern mode (legacy -r)${COL0}]";
 	run_pattern "Custom" "$REGEXP" "$REGEXPIPPOS" "$LIMIT";
 else
-	echo -e "[${COL4}Multi-pattern automatic mode — ${#PATTERNS[@]} active patterns${COL0}]";
-	for entry in "${PATTERNS[@]}"; do
-		IFS='|' read -r pname pregexp pippos plimit <<< "$entry";
-		run_pattern "$pname" "$pregexp" "$pippos" "$plimit";
+	echo -e "[${COL4}Multi-pattern automatic mode — ${#PATTERN_NAMES[@]} active patterns${COL0}]";
+	for i in "${!PATTERN_NAMES[@]}"; do
+		run_pattern "${PATTERN_NAMES[$i]}" "${PATTERN_REGEX[$i]}" "${PATTERN_IPPOS[$i]}" "${PATTERN_LIMIT[$i]}";
+	done
+fi
+
+# ---------------------------------------------------------------------------
+# Report degli IP già bloccati (iptables + hosts.deny)
+# Mostrati sempre, indipendentemente dal parsing del log.
+# Utile per vedere lo stato corrente anche quando il journal è ruotato
+# o gli attacchi sono troppo vecchi per apparire nel log attuale.
+# ---------------------------------------------------------------------------
+echo -e "\n[${COL4}Currently blocked IPs${COL0}]";
+
+# Legge le regole DROP dalla chain configurata
+mapfile -t blocked_ips < <(
+	$biniptables -L "$IPTABLESCHAIN" -n 2>/dev/null \
+	| awk -v action="$IPTABLESACTION" '$1==action && $4 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $4}'
+)
+
+# Legge anche gli IP in hosts.deny (righe "ALL: x.x.x.x")
+mapfile -t denied_ips < <(
+	grep -oE 'ALL:[[:space:]]*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})' "$HOSTS_DENY" 2>/dev/null \
+	| grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
+)
+
+# Unione dei due insiemi (deduplicata)
+declare -A all_blocked;
+for ip in "${blocked_ips[@]}"; do all_blocked["$ip"]="iptables"; done
+for ip in "${denied_ips[@]}"; do
+	if [ -n "${all_blocked[$ip]}" ]; then
+		all_blocked["$ip"]="iptables + hosts.deny";
+	else
+		all_blocked["$ip"]="hosts.deny";
+	fi
+done
+
+if [ "${#all_blocked[@]}" -eq 0 ]; then
+	echo -e "   \`-- [${COL1}Clean${COL0}] No IPs currently blocked.";
+else
+	echo -e "   ${#all_blocked[@]} IP(s) currently blocked:";
+	for ip in "${!all_blocked[@]}"; do
+		echo -e "   [${COL3}Block${COL0}] $ip  (${all_blocked[$ip]})";
 	done
 fi
 

@@ -2,7 +2,15 @@
 
 > Automatic IP blocking from log files — bruteforce, port scans, web attacks, and more.
 
-[![Donate](https://img.shields.io/badge/Donate-PayPal-00457C.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+Log2Iptables+Project)
+## Support the project
+
+If you find log2iptables useful and want to thank the developer for his work, you can buy him a coffee via PayPal. Any contribution, big or small, is greatly appreciated and helps keep the project alive and actively developed!
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+Log2Iptables+Project)
+
+*Thank you so much!* 🙏
+
+---
 
 **log2iptables** is a Bash script that parses log files (or systemd journals) and automatically blocks offending IP addresses via `iptables`, `ip6tables`, and `/etc/hosts.deny`. It requires no external dependencies beyond standard Linux tools and runs entirely in bash.
 
