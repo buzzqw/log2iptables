@@ -125,7 +125,7 @@ check_bin() {
 	local bin;
 	bin=$(command -v "$1" 2>/dev/null);
 	if [ -z "$bin" ]; then
-		echo -e "${COL3}ERRORE:${COL0} '$1' non trovato in PATH. Installalo prima di continuare." >&2;
+		echo -e "${COL3}ERROR:${COL0} '$1' not found in PATH. Please install it before continuing." >&2;
 		exit 1;
 	fi
 	echo "$bin";
@@ -223,22 +223,22 @@ block_ip() {
 	if is_ipv6 "$ip"; then
 		if [ "$ENABLE_IPV6" -eq 1 ] && [ -n "$binip6tables" ]; then
 			if is_in_ip6tables "$ip"; then
-				echo -e "   \`-- [${COL1}Skip ${COL0}] $ip gia' presente in ip6tables.";
+				echo -e "   \`-- [${COL1}Skip ${COL0}] $ip already present in ip6tables.";
 			else
 				[ "$IPTABLESEXEC" -eq 1 ] && $binip6tables -"$IPTABLESINSERT" "$IPTABLESCHAIN" -s "$ip" -j "$IPTABLESACTION";
-				echo -e "   \`-- [${COL3}Add ${COL0}] $ip aggiunto a ip6tables (-j ${IPTABLESACTION})";
+				echo -e "   \`-- [${COL3}Add ${COL0}] $ip added to ip6tables (-j ${IPTABLESACTION})";
 				addedip["$ip"]=1;
 				somethinghappens=1;
 			fi
 		else
-			echo -e "   \`-- [${COL2}Skip ${COL0}] $ip e' IPv6 ma il supporto IPv6 e' disabilitato (-6).";
+			echo -e "   \`-- [${COL2}Skip ${COL0}] $ip is IPv6 but IPv6 support is disabled. Use -6 to enable it.";
 		fi
 	else
 		if is_in_iptables "$ip"; then
-			echo -e "   \`-- [${COL1}Skip ${COL0}] $ip gia' presente in iptables.";
+			echo -e "   \`-- [${COL1}Skip ${COL0}] $ip already present in iptables.";
 		else
 			[ "$IPTABLESEXEC" -eq 1 ] && $biniptables -"$IPTABLESINSERT" "$IPTABLESCHAIN" -s "$ip" -j "$IPTABLESACTION";
-			echo -e "   \`-- [${COL3}Add ${COL0}] $ip aggiunto a iptables (-j ${IPTABLESACTION})";
+			echo -e "   \`-- [${COL3}Add ${COL0}] $ip added to iptables (-j ${IPTABLESACTION})";
 			addedip["$ip"]=1;
 			somethinghappens=1;
 		fi
@@ -246,12 +246,12 @@ block_ip() {
 
 	# --- hosts.deny: indipendente da iptables, rispetta il dry-run ---
 	if is_in_hosts_deny "$ip"; then
-		echo -e "   \`-- [${COL1}Skip ${COL0}] $ip gia' presente in ${HOSTS_DENY}.";
+		echo -e "   \`-- [${COL1}Skip ${COL0}] $ip already present in ${HOSTS_DENY}.";
 	else
 		if [ "$IPTABLESEXEC" -eq 1 ]; then
 			echo "ALL: ${ip}" >> "$HOSTS_DENY";
 		fi
-		echo -e "   \`-- [${COL3}Add ${COL0}] $ip aggiunto a ${HOSTS_DENY}$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
+		echo -e "   \`-- [${COL3}Add ${COL0}] $ip added to ${HOSTS_DENY}$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
 	fi
 }
 
@@ -266,16 +266,16 @@ do_unblock() {
 
 	if is_in_iptables "$ip"; then
 		[ "$IPTABLESEXEC" -eq 1 ] && $biniptables -D "$IPTABLESCHAIN" -s "$ip" -j "$IPTABLESACTION";
-		echo -e "   \`-- [${COL1}OK${COL0}] rimosso da iptables$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
+		echo -e "   \`-- [${COL1}OK${COL0}] removed from iptables$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
 		removed=1;
 	else
-		echo -e "   \`-- [${COL2}Skip${COL0}] non presente in iptables.";
+		echo -e "   \`-- [${COL2}Skip${COL0}] not present in iptables.";
 	fi
 
 	if [ "$ENABLE_IPV6" -eq 1 ] && [ -n "$binip6tables" ]; then
 		if is_in_ip6tables "$ip"; then
 			[ "$IPTABLESEXEC" -eq 1 ] && $binip6tables -D "$IPTABLESCHAIN" -s "$ip" -j "$IPTABLESACTION";
-			echo -e "   \`-- [${COL1}OK${COL0}] rimosso da ip6tables$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
+			echo -e "   \`-- [${COL1}OK${COL0}] removed from ip6tables$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
 			removed=1;
 		fi
 	fi
@@ -285,13 +285,13 @@ do_unblock() {
 			local escaped="${ip//./\\.}";
 			sed -i "/ALL:[[:space:]]*${escaped}[[:space:]]*$/d" "$HOSTS_DENY";
 		fi
-		echo -e "   \`-- [${COL1}OK${COL0}] rimosso da ${HOSTS_DENY}$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
+		echo -e "   \`-- [${COL1}OK${COL0}] removed from ${HOSTS_DENY}$([ "$IPTABLESEXEC" -eq 0 ] && echo ' [DRY-RUN]').";
 		removed=1;
 	else
-		echo -e "   \`-- [${COL2}Skip${COL0}] non presente in ${HOSTS_DENY}.";
+		echo -e "   \`-- [${COL2}Skip${COL0}] not present in ${HOSTS_DENY}.";
 	fi
 
-	[ "$removed" -eq 0 ] && echo -e "   \`-- [${COL2}Info${COL0}] $ip non era bloccato da nessuna parte.";
+	[ "$removed" -eq 0 ] && echo -e "   \`-- [${COL2}Info${COL0}] $ip was not blocked anywhere.";
 	echo "";
 }
 
@@ -303,10 +303,10 @@ acquire_lock() {
 		local pid;
 		pid=$(cat "$LOCKFILE" 2>/dev/null);
 		if kill -0 "$pid" 2>/dev/null; then
-			echo -e "${COL3}ERRORE:${COL0} Un'altra istanza e' in esecuzione (PID $pid). Uscita." >&2;
+			echo -e "${COL3}ERROR:${COL0} Another instance is already running (PID $pid) Exiting." >&2;
 			exit 1;
 		else
-			echo -e "${COL2}WARN:${COL0} Lock file orfano (PID $pid inesistente). Rimosso.";
+			echo -e "${COL2}WARN:${COL0} Stale lock file (PID $pid no longer exists). Removed.";
 			rm -f "$LOCKFILE";
 		fi
 	fi
@@ -411,16 +411,16 @@ while getopts :hf:r:p:l:a:i:c:t:T:C:x:u:U:H:X:m:M:d:j:6 OPTION; do
 			SENDMAILFROM="${OPTARG}";
 		;;
 		d)
-			echo "Modalita' unblock per IP: ${OPTARG}";
+			echo "Unblock mode for IP: ${OPTARG}";
 			UNBLOCK_IP="${OPTARG}";
 		;;
 		j)
-			echo "Sorgente: journalctl -u ${OPTARG}";
+			echo "Log source: journalctl -u ${OPTARG}";
 			LOG_SOURCE="journalctl";
 			JOURNALCTL_UNIT="${OPTARG}";
 		;;
 		6)
-			echo "Supporto IPv6 abilitato (ip6tables).";
+			echo "IPv6 support enabled (ip6tables).";
 			ENABLE_IPV6=1;
 		;;
 		h)
@@ -430,37 +430,37 @@ while getopts :hf:r:p:l:a:i:c:t:T:C:x:u:U:H:X:m:M:d:j:6 OPTION; do
 			echo "  -f <file>       Forza lettura da file di log (default: /var/log/auth.log)"
 			echo "  -j <unit>       Forza lettura da journalctl (es: 'ssh')"
 			echo "                  Default: auto-detect (journalctl se attivo, altrimenti auth.log)"
-			echo "  -l <number>     Soglia globale: sovrascrive le soglie per-pattern (default: usa soglie pattern)"
-			echo "  -x <1|0>        Modalita' produzione: 1=esegui, 0=dry-run (default: 0)"
-			echo "  -a <action>     Azione iptables (argomento -j, default: DROP)"
+			echo "  -l <number>     Global threshold: overrides per-pattern thresholds (default: use per-pattern values)"
+			echo "  -x <1|0>        Production mode: 1=execute, 0=dry-run (default: 0)"
+			echo "  -a <action>     iptables action (-j argument, default: DROP)"
 			echo "  -i <I|A>        Insert (I) o Append (A) in iptables (default: I)"
 			echo "  -c <chain>      Chain iptables (INPUT, OUTPUT, ecc., default: INPUT)"
 			echo "  -6              Abilita supporto IPv6 via ip6tables"
-			echo "  -d <ip>         Sblocca un IP: rimuove da iptables e hosts.deny"
-			echo "  -m <address>    Invia email quando vengono aggiunte nuove regole"
-			echo "  -M <address>    Mittente email"
+			echo "  -d <ip>         Unblock an IP: remove from iptables and hosts.deny"
+			echo "  -m <address>    Send email when new rules are added"
+			echo "  -M <address>    Mail from address"
 			echo ""
-			echo "Modalita' legacy (single-pattern, retrocompatibile):"
+			echo "Legacy mode (single-pattern, backward compatible):"
 			echo "  -r <regex>      Espressione regolare custom (attiva modalita' single-pattern)"
 			echo "  -p <number>     Numero del gruppo regex che contiene l'IP"
-			echo "  -l <number>     Soglia match (obbligatorio in modalita' legacy)"
+			echo "  -l <number>     Match threshold (required in legacy mode)"
 			echo ""
-			echo "Pattern automatici attivi (modalita' default, senza -r):"
+			echo "Active automatic patterns (default mode, without -r):"
 			for entry in "${PATTERNS[@]}"; do
 				IFS='|' read -r pname _ _ plimit <<< "$entry";
-				printf "  %-20s soglia: %s\n" "$pname" "$plimit";
+				printf "  %-20s threshold: %s\n" "$pname" "$plimit";
 			done
 			echo ""
-			echo "Funzioni sistema:"
+			echo "System functions:"
 			echo "  -X <cmd>        Esegui comando dopo le nuove regole (IPLISTCSV/IPLISTPIPE come placeholder)"
 			echo ""
-			echo "Funzioni HTTP:"
+			echo "HTTP functions:"
 			echo "  -u <1|0>        Abilita HTTP POST (default: 0)"
 			echo "  -U <url>        URL destinazione"
 			echo "  -H <param>      Header curl aggiuntivi"
 			echo ""
-			echo "Funzioni Telegram:"
-			echo "  -t <1|0>        Invia messaggio Telegram (default: 0)"
+			echo "Telegram functions:"
+			echo "  -t <1|0>        Send Telegram message (default: 0)"
 			echo "  -T <token>      Token bot Telegram"
 			echo "  -C <chat id>    Chat ID Telegram"
 			echo ""
@@ -473,7 +473,7 @@ done
 # Dry-run warning
 # ---------------------------------------------------------------------------
 if [ "$IPTABLESEXEC" -eq 0 ]; then
-	echo -e "\n${COL2}[DRY-RUN]${COL0} Nessuna modifica reale verra' applicata. Usa -x 1 per la modalita' produzione.\n";
+	echo -e "\n${COL2}[DRY-RUN]${COL0} No changes will be applied. Use -x 1 for production mode.\n";
 fi
 
 # ---------------------------------------------------------------------------
@@ -496,7 +496,7 @@ trap release_lock EXIT;
 # Load whitelist
 # ---------------------------------------------------------------------------
 load_whitelist;
-echo -e "Whitelist: ${#WHITELIST[@]} indirizzo/i caricato/i da ${HOSTS_ALLOW}.\n";
+echo -e "Whitelist: ${#WHITELIST[@]} address(es) loaded from ${HOSTS_ALLOW}.\n";
 
 # ---------------------------------------------------------------------------
 # Read log source: file o journalctl
@@ -513,54 +513,69 @@ echo "";
 #   "auto"       → prova journalctl (se presente e con output), fallback su LOGFILE
 # Imposta LOG_SOURCE_EFFECTIVE e stampa cosa viene usato.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Auto-detect della sorgente log migliore disponibile.
+# In modalità auto, journalctl legge da TUTTE le unit rilevanti per la
+# sicurezza (ssh, sshd, sudo, postfix, dovecot, ecc.) senza filtro -u,
+# così cattura i log di auth anche su sistemi Debian/Ubuntu dove sshd
+# scrive su più unit. Se journalctl restituisce meno di 50 righe (solo
+# messaggi di avvio demone, nessun log di autenticazione reale) cade
+# su auth.log.
+# ---------------------------------------------------------------------------
 detect_log_source() {
 	if [ "$LOG_SOURCE" = "journalctl" ]; then
 		if [ -z "$binjournalctl" ]; then
-			echo -e "${COL3}ERRORE:${COL0} journalctl non trovato ma -j e' stato specificato." >&2;
+			echo -e "${COL3}ERROR:${COL0} journalctl not found but -j was specified." >&2;
 			exit 1;
 		fi
 		LOG_SOURCE_EFFECTIVE="journalctl";
-		echo -e "Sorgente log: ${COL1}journalctl${COL0} -u ${JOURNALCTL_UNIT} (forzato via -j)";
+		echo -e "Log source: ${COL1}journalctl${COL0} -u ${JOURNALCTL_UNIT} (forced via -j)";
 		return;
 	fi
 
 	if [ "$LOG_SOURCE" = "file" ]; then
 		if [ ! -f "$LOGFILE" ]; then
-			echo -e "${COL3}ERRORE:${COL0} File di log non trovato: $LOGFILE" >&2;
+			echo -e "${COL3}ERROR:${COL0} Log file not found: $LOGFILE" >&2;
 			exit 1;
 		fi
 		LOG_SOURCE_EFFECTIVE="file";
-		echo -e "Sorgente log: ${COL1}file${COL0} ${LOGFILE} (forzato via -f)";
+		echo -e "Log source: ${COL1}file${COL0} ${LOGFILE} (forced via -f)";
 		return;
 	fi
 
 	# --- AUTO-DETECT ---
+	# In auto mode: journalctl senza -u (cattura tutti i servizi di sistema).
+	# Consideriamo "popolato" solo se ha almeno 50 righe (esclude sistemi
+	# con solo messaggi di boot e nessun log di autenticazione reale).
 	local jctl_ok=0;
 	if [ -n "$binjournalctl" ]; then
-		# journalctl disponibile: ha righe per l'unit richiesta?
 		local linecount;
-		linecount=$($binjournalctl -u "$JOURNALCTL_UNIT" --no-pager -q 2>/dev/null | wc -l);
-		if [ "$linecount" -gt 0 ]; then
+		linecount=$($binjournalctl --no-pager -q 2>/dev/null | wc -l);
+		if [ "$linecount" -ge 50 ]; then
 			jctl_ok=1;
 		fi
 	fi
 
 	if [ "$jctl_ok" -eq 1 ]; then
-		LOG_SOURCE_EFFECTIVE="journalctl";
-		echo -e "Sorgente log: ${COL1}journalctl${COL0} -u ${JOURNALCTL_UNIT} (auto-detect: systemd attivo e popolato)";
+		LOG_SOURCE_EFFECTIVE="journalctl-all";
+		echo -e "Log source: ${COL1}journalctl${COL0} (all units, auto-detect: systemd active with ${linecount} lines)";
 	elif [ -f "$LOGFILE" ]; then
 		LOG_SOURCE_EFFECTIVE="file";
-		echo -e "Sorgente log: ${COL1}file${COL0} ${LOGFILE} (auto-detect: journalctl assente/vuoto, fallback su auth.log)";
+		echo -e "Log source: ${COL1}file${COL0} ${LOGFILE} (auto-detect: journalctl absent/empty, fallback to auth.log)";
 	else
-		echo -e "${COL3}ERRORE:${COL0} Auto-detect fallito: journalctl vuoto/assente e ${LOGFILE} non trovato." >&2;
-		echo -e "         Usa -j <unit> per specificare l'unit journalctl o -f <file> per il log file." >&2;
+		echo -e "${COL3}ERROR:${COL0} Auto-detect failed: journalctl empty/absent and ${LOGFILE} not found." >&2;
+		echo -e "         Use -j <unit> to specify a journalctl unit or -f <file> for a log file." >&2;
 		exit 1;
 	fi
 }
 
 read_log() {
 	if [ "$LOG_SOURCE_EFFECTIVE" = "journalctl" ]; then
+		# Forzato via -j: usa l'unit specificata
 		$binjournalctl -u "$JOURNALCTL_UNIT" --no-pager -q 2>/dev/null;
+	elif [ "$LOG_SOURCE_EFFECTIVE" = "journalctl-all" ]; then
+		# Auto-detect: tutte le unit (cattura sshd, sudo, PAM, postfix, ecc.)
+		$binjournalctl --no-pager -q 2>/dev/null;
 	else
 		cat "$LOGFILE";
 	fi
@@ -572,7 +587,7 @@ detect_log_source;
 # Leggi il log una volta sola in memoria (evita N letture per N pattern)
 # ---------------------------------------------------------------------------
 mapfile -t LOG_LINES < <(read_log)
-echo -e "Righe di log lette: ${#LOG_LINES[@]}\n";
+echo -e "Log lines read: ${#LOG_LINES[@]}\n";
 
 # ---------------------------------------------------------------------------
 # MULTI-PATTERN PARSING
@@ -587,7 +602,6 @@ run_pattern() {
 	local -A hits;
 	local line local_ip;
 
-	# Override soglia globale se specificato con -l
 	[ "$LIMIT_OVERRIDE" -gt 0 ] && limit="$LIMIT_OVERRIDE";
 
 	for line in "${LOG_LINES[@]}"; do
@@ -597,36 +611,36 @@ run_pattern() {
 		fi
 	done
 
+	# Stampa sempre l'intestazione del pattern con il conteggio IP trovati
+	echo -e "\n[${COL4}Pattern${COL0}] ${pname} (threshold: ${limit}) — ${#hits[@]} unique IP(s) seen";
+
 	if [ "${#hits[@]}" -eq 0 ]; then
+		echo -e "   \`-- [${COL1}Clean${COL0}] No matches found.";
 		return;
 	fi
 
-	local found_something=0;
 	for ip in "${!hits[@]}"; do
-		if [ "${hits[$ip]}" -ge "$limit" ]; then
-			if [ "$found_something" -eq 0 ]; then
-				echo -e "\n[${COL4}Pattern${COL0}] ${pname} (soglia: ${limit})";
-				found_something=1;
-			fi
-			echo -e "[${COL1}Found${COL0}] $ip trovato ${hits[$ip]} volte";
+		local count="${hits[$ip]}";
+		if [ "$count" -ge "$limit" ]; then
+			echo -e "[${COL1}Found${COL0}] $ip matched $count time(s) — above threshold";
 
 			if is_whitelisted "$ip"; then
-				echo -e "\`-- [${COL2}Skip ${COL0}] $ip e' in whitelist. Saltato.";
+				echo -e "\`-- [${COL2}Skip ${COL0}] $ip is whitelisted. Skipping.";
 				continue;
 			fi
 
 			block_ip "$ip";
+		else
+			echo -e "[${COL2}Watch${COL0}] $ip matched $count time(s) — below threshold (${limit})";
 		fi
 	done
 }
 
 if [ -n "$REGEXP" ]; then
-	# Modalità legacy: -r specificato dall'utente
-	echo -e "[${COL2}Modalita' single-pattern (legacy -r)${COL0}]";
+	echo -e "[${COL2}Single-pattern mode (legacy -r)${COL0}]";
 	run_pattern "Custom" "$REGEXP" "$REGEXPIPPOS" "$LIMIT";
 else
-	# Modalità multi-pattern automatica
-	echo -e "[${COL4}Modalita' multi-pattern automatica — ${#PATTERNS[@]} pattern attivi${COL0}]";
+	echo -e "[${COL4}Multi-pattern automatic mode — ${#PATTERNS[@]} active patterns${COL0}]";
 	for entry in "${PATTERNS[@]}"; do
 		IFS='|' read -r pname pregexp pippos plimit <<< "$entry";
 		run_pattern "$pname" "$pregexp" "$pippos" "$plimit";
@@ -643,7 +657,7 @@ if [ "$somethinghappens" -eq 1 ]; then
 	pipeout="";
 	mailout="";
 
-	echo -e "\n${#addedip[@]} nuovo/i IP aggiunto/i a iptables:";
+	echo -e "\n${#addedip[@]} new IP address(es) added to iptables:";
 	echo "+";
 
 	i=1;
@@ -666,9 +680,9 @@ if [ "$somethinghappens" -eq 1 ]; then
 
 	if [ "$SENDTELEGRAM" -eq 1 ]; then
 		if [ -z "$bincurl" ]; then
-			echo -e "${COL2}WARN:${COL0} curl non trovato, notifica Telegram saltata.";
+			echo -e "${COL2}WARN:${COL0} curl not found, Telegram notification skipped.";
 		else
-			echo -e "[${COL1}Send ${COL0}] Invio messaggio Telegram...";
+			echo -e "[${COL1}Send ${COL0}] Sending Telegram message...";
 			$bincurl -s \
 				-d "text=log2iptables%20ha%20bloccato%3A%20${telegramout}su%20*${shostname}*%20%28${sallipadd}%29%20in%20${LOGFILE}&chat_id=${TELEGRAMCHATID}" \
 				"https://api.telegram.org/bot${TELEGRAMBOTTOKEN}/sendMessage" > /dev/null;
@@ -677,9 +691,9 @@ if [ "$somethinghappens" -eq 1 ]; then
 
 	if [ "$SENDHTTP" -eq 1 ]; then
 		if [ -z "$bincurl" ]; then
-			echo -e "${COL2}WARN:${COL0} curl non trovato, HTTP POST saltato.";
+			echo -e "${COL2}WARN:${COL0} curl not found, HTTP POST skipped.";
 		else
-			echo -e "[${COL1}Send ${COL0}] Invio HTTP POST...";
+			echo -e "[${COL1}Send ${COL0}] Sending HTTP POST...";
 			$bincurl -s \
 				-d "ipaddresses=${telegramout}&logfile=${LOGFILE}&system=${shostname}" \
 				-A "log2iptables ${VERSION} (https://github.com/theMiddleBlue/log2iptables)" \
@@ -689,16 +703,16 @@ if [ "$somethinghappens" -eq 1 ]; then
 
 	if [ "$SENDMAIL" -eq 1 ]; then
 		if [ -z "$binsendmail" ]; then
-			echo -e "${COL2}WARN:${COL0} sendmail non trovato, email saltata.";
+			echo -e "${COL2}WARN:${COL0} sendmail not found, email skipped.";
 		else
-			MAILBODY="Salve,\\r\\n\\r\\nI seguenti IP sono stati bloccati:\\r\\n${mailout}\\r\\n\\r\\nSistema: ${shostname}\\r\\nIP: ${sallipadd}\\r\\nLog: ${LOGFILE}\\r\\n\\r\\n--\\r\\nlog2iptables ${VERSION}";
-			echo -e "Subject: [log2iptables] Nuove regole iptables\r\n\r\n${MAILBODY}" \
+			MAILBODY="Hi,\\r\\n\\r\\nThe following IPs have been blocked:\\r\\n${mailout}\\r\\n\\r\\nSystem: ${shostname}\\r\\nIP: ${sallipadd}\\r\\nLog: ${LOGFILE}\\r\\n\\r\\n--\\r\\nlog2iptables ${VERSION}";
+			echo -e "Subject: [log2iptables] New iptables rules added\r\n\r\n${MAILBODY}" \
 				| $binsendmail -F "log2iptables" -f "${SENDMAILFROM}" "${SENDMAILTO}";
 		fi
 	fi
 
 	if [ "$EXECCMD" != "0" ]; then
-		echo -e "\nEsecuzione comando personalizzato: ${EXECCMD}";
+		echo -e "\nRunning custom command: ${EXECCMD}";
 		echo "+";
 		if [[ "$EXECCMD" == *"IPLISTCSV"* ]]; then
 			CMDREPLACE="${EXECCMD//IPLISTCSV/$csvout}";
@@ -714,4 +728,4 @@ if [ "$somethinghappens" -eq 1 ]; then
 	fi
 fi
 
-echo -e "Fatto.\n";
+echo -e "Done.\n";
