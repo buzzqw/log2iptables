@@ -229,14 +229,22 @@ sudo ./log2iptables.sh -x 1 -d 87.251.64.147
 [DRY-RUN] No changes will be applied. Use -x 1 for production mode.
 
 Whitelist: 1 address(es) loaded from /etc/hosts.allow.
-Log source: file /var/log/auth.log (auto-detect: journalctl absent/empty, fallback to auth.log)
+Log source: journalctl (all units, auto-detect: systemd active with 48291 lines)
 Log lines read: 48291
 
-[Pattern] SSH bruteforce (threshold: 5)
-[Found] 87.251.64.147 found 20 times
-   `-- [Skip ] 87.251.64.147 already in iptables.
-   `-- [Skip ] 87.251.64.147 already in /etc/hosts.deny.
-[Found] 87.251.64.145 found 16 times
+[Multi-pattern automatic mode — 9 active patterns]
+
+[Pattern] SSH bruteforce (threshold: 5) — 3 unique IP(s) seen
+[Found] 87.251.64.147 matched 20 time(s) — above threshold
+   `-- [Skip ] already present in iptables.
+   `-- [Skip ] already present in /etc/hosts.deny.
+[Watch] 12.34.56.78 matched 2 time(s) — below threshold (5)
+
+[Pattern] SSH no auth (threshold: 10) — 0 unique IP(s) seen
+   `-- [Clean] No matches found.
+
+[Pattern] PAM failure (threshold: 5) — 1 unique IP(s) seen
+[Found] 87.251.64.145 matched 16 time(s) — above threshold
    `-- [Add  ] 87.251.64.145 added to iptables (-j DROP) [DRY-RUN]
    `-- [Add  ] 87.251.64.145 added to /etc/hosts.deny [DRY-RUN]
 
