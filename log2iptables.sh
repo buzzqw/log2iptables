@@ -721,7 +721,7 @@ run_pattern() {
 	done
 
 	# Always print the pattern header with unique IP count
-	echo -e "\n[${COL4}Pattern${COL0}] ${pname} (threshold: ${limit}) — ${#hits[@]} unique IP(s) seen";
+	echo -e "\n[${COL4}Pattern${COL0}] ${pname} (threshold: ${limit}) - ${#hits[@]} unique IP(s) seen";
 
 	if [ "${#hits[@]}" -eq 0 ]; then
 		echo -e "   \`-- [${COL1}Clean${COL0}] No matches found.";
@@ -731,7 +731,7 @@ run_pattern() {
 	for ip in "${!hits[@]}"; do
 		local count="${hits[$ip]}";
 		if [ "$count" -ge "$limit" ]; then
-			echo -e "[${COL1}Found${COL0}] $ip matched $count time(s) — above threshold";
+			echo -e "[${COL1}Found${COL0}] $ip matched $count time(s) - above threshold";
 
 			if is_whitelisted "$ip"; then
 				echo -e "\`-- [${COL2}Skip ${COL0}] $ip is whitelisted. Skipping.";
@@ -740,7 +740,7 @@ run_pattern() {
 
 			block_ip "$ip";
 		else
-			echo -e "[${COL2}Watch${COL0}] $ip matched $count time(s) — below threshold (${limit})";
+			echo -e "[${COL2}Watch${COL0}] $ip matched $count time(s) - below threshold (${limit})";
 		fi
 	done
 }
@@ -749,7 +749,7 @@ if [ -n "$REGEXP" ]; then
 	echo -e "[${COL2}Single-pattern mode (legacy -r)${COL0}]";
 	run_pattern "Custom" "$REGEXP" "$REGEXPIPPOS" "$LIMIT";
 else
-	echo -e "[${COL4}Multi-pattern automatic mode — ${#PATTERN_NAMES[@]} active patterns${COL0}]";
+	echo -e "[${COL4}Multi-pattern automatic mode - ${#PATTERN_NAMES[@]} active patterns${COL0}]";
 	for i in "${!PATTERN_NAMES[@]}"; do
 		run_pattern "${PATTERN_NAMES[$i]}" "${PATTERN_REGEX[$i]}" "${PATTERN_IPPOS[$i]}" "${PATTERN_LIMIT[$i]}";
 	done
