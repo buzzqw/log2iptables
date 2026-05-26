@@ -18,15 +18,16 @@ If you find log2iptables useful and want to thank the developer for his work, yo
 
 ## Features
 
-- **Multi-pattern detection** — SSH bruteforce, port scanners, sudo abuse, PAM failures, web scanners (Nikto, 404 floods), FTP/SMTP/IMAP attacks, all in a single pass
+- **Multi-pattern detection** — SSH bruteforce, invalid user scans, preauth disconnects, port scanners, sudo abuse, PAM failures, web scanners (Nikto, 404 floods), FTP/SMTP/IMAP attacks, all in a single pass
+- **Time window** — optionally limit analysis to the last N hours (`-w`) to avoid blocking on ancient log history
 - **Auto-detect log source** — prefers `journalctl` on systemd systems, falls back to `/var/log/auth.log` automatically
 - **Dual blocking** — blocks via both `iptables`/`ip6tables` and `/etc/hosts.deny`
 - **IPv6 support** — optional `ip6tables` integration via `-6`
-- **Whitelist** — reads `/etc/hosts.allow`, supports exact IPs, CIDR notation, and prefix matching (pure bash, no `ipcalc` needed)
+- **Whitelist** — reads `/etc/hosts.allow`, supports exact IPs and CIDR notation (pure bash, no `ipcalc` needed)
 - **Unblock** — remove an IP from all blocking mechanisms with a single flag
-- **Dry-run mode** — safe testing without touching iptables or hosts.deny
-- **Lock file** — prevents concurrent executions (safe for cron)
-- **Notifications** — Telegram bot, HTTP POST, email via sendmail
+- **Dry-run mode** — safe testing without touching iptables, hosts.deny, or sending any notifications
+- **Lock file** — prevents concurrent executions (safe for cron), atomic creation to avoid race conditions
+- **Notifications** — Telegram bot, HTTP POST, email via sendmail (production mode only, never in dry-run)
 - **Custom commands** — execute arbitrary commands on new blocks, with `IPLISTCSV`/`IPLISTPIPE` placeholders
 - **Legacy mode** — fully retrocompatible with the original single-regex `-r/-p/-l` interface
 
@@ -72,6 +73,11 @@ sudo ./log2iptables.sh
 sudo ./log2iptables.sh -x 1
 ```
 
+**Last 24 hours only** (recommended for cron):
+```bash
+sudo ./log2iptables.sh -x 1 -w 24
+```
+
 **Lower the threshold** for all patterns at once:
 ```bash
 sudo ./log2iptables.sh -x 1 -l 3
@@ -93,6 +99,8 @@ Usage: log2iptables.sh -x [0|1] [options]
   -f <file>       Force reading from a log file (default: /var/log/auth.log)
   -j <unit>       Force reading from journalctl (e.g. 'ssh')
                   Default: auto-detect (journalctl if active, otherwise auth.log)
+  -w <hours>      Time window: only consider log lines from the last N hours
+                  (default: 0 = all history). Recommended: -w 24 for cron use.
   -l <number>     Global threshold: overrides per-pattern thresholds
   -x <1|0>        Production mode: 1=execute, 0=dry-run (default: 0)
   -a <action>     iptables action (-j argument, default: DROP)
@@ -128,6 +136,8 @@ In automatic multi-pattern mode (default, no `-r`), all of the following pattern
 | Pattern | What it detects | Default threshold |
 |---|---|---|
 | SSH bruteforce | Failed password / authentication (`sshd`) | 5 |
+| SSH invalid user | Non-existent username probes (`Invalid user`) | 5 |
+| SSH disconnect preauth | Disconnected before authentication — typical scanner | 10 |
 | SSH no auth | Port scanner: no identification string sent | 10 |
 | sudo abuse | Unauthorized escalation attempts | 3 |
 | PAM failure | Generic PAM authentication failure with IP | 5 |
@@ -137,7 +147,9 @@ In automatic multi-pattern mode (default, no `-r`), all of the following pattern
 | SMTP bruteforce | Failed SASL auth (postfix) | 5 |
 | IMAP bruteforce | Failed logins (dovecot) | 5 |
 
-Patterns are defined as four parallel bash arrays at the top of the script (`PATTERN_NAMES`, `PATTERN_REGEX`, `PATTERN_IPPOS`, `PATTERN_LIMIT`). To disable a pattern comment out its entry in all four arrays. To add a new one, append a line to each array at the same index.
+> **Note:** Web scan patterns (Nikto, 404) are designed for web server access logs. They will never match `/var/log/auth.log`. Use `-f /var/log/nginx/access.log` or `-f /var/log/apache2/access.log` to activate them.
+
+Patterns are defined as four parallel bash arrays at the top of the script (`PATTERN_NAMES`, `PATTERN_REGEX`, `PATTERN_IPPOS`, `PATTERN_LIMIT`). To disable a pattern, comment out its entry in all four arrays. To add a new one, append a line to each array at the same index.
 
 ---
 
@@ -146,15 +158,28 @@ Patterns are defined as four parallel bash arrays at the top of the script (`PAT
 The script automatically selects the best available log source:
 
 ```
-journalctl ≥50 lines  +  auth.log exists  →  read BOTH, deduplicated (sort -u)
+journalctl ≥50 lines  +  auth.log exists  →  read BOTH, deduplicated (streaming awk)
 journalctl ≥50 lines  +  no auth.log      →  journalctl only
 no journalctl          +  auth.log exists  →  auth.log only
 neither available                          →  error with guidance
 ```
 
-On Debian/Ubuntu with rsyslog active, SSH/PAM/sudo logs are intercepted by rsyslog and written to `/var/log/auth.log` before journald sees them. Reading only the journal would miss all authentication events. In `both` mode the two sources are merged and deduplicated so each event is counted exactly once.
+On Debian/Ubuntu with rsyslog active, SSH/PAM/sudo logs are intercepted by rsyslog and written to `/var/log/auth.log` before journald sees them. Reading only the journal would miss all authentication events. In `both` mode the two sources are merged and deduplicated (via streaming `awk '!seen[$0]++'`) so each event is counted exactly once.
 
 Override with `-j <unit>` (force journalctl) or `-f <file>` (force file).
+
+---
+
+## Time Window (-w)
+
+By default the script processes the entire log history. This means an IP that had 5 failed SSH attempts two years ago would still be blocked today. The `-w` flag limits analysis to the last N hours:
+
+```bash
+# Only look at events from the last 24 hours
+sudo ./log2iptables.sh -x 1 -w 24
+```
+
+For journalctl sources, `-w` uses `journalctl --since` (exact). For file sources, lines are filtered by comparing syslog timestamps (works correctly within the same month; may miss lines at month boundaries). This is the recommended mode for cron use.
 
 ---
 
@@ -163,25 +188,37 @@ Override with `-j <unit>` (force journalctl) or `-f <file>` (force file).
 Any IP present in `/etc/hosts.allow` is automatically skipped. The whitelist supports:
 
 - **Exact match**: `ALL: 1.2.3.4`
-- **CIDR notation**: `sshd: 192.168.1.0/24`  
-- **Prefix match**: `ALL: 10.0.` (hosts.allow style)
+- **CIDR notation**: `sshd: 192.168.1.0/24`
 
-The CIDR check is implemented in pure bash with bitwise arithmetic — no `ipcalc` required.
+The CIDR check is implemented in pure bash with bitwise arithmetic — no `ipcalc` required. Prefix-style wildcards (e.g. `ALL: 10.0.`) are intentionally not supported to prevent accidentally whitelisting IPs that share a numeric prefix with a listed entry.
+
+---
+
+## Dry-Run Mode
+
+Running without `-x 1` activates dry-run mode: no iptables rules are written, no hosts.deny entries are added, and **no notifications are sent** (Telegram, email, HTTP POST, custom commands). This makes dry-run safe for testing without side effects.
 
 ---
 
 ## Cron Setup
 
-Run every 5 minutes:
+Run every 5 minutes, only looking at the last 30 minutes of logs:
 ```
-*/5 * * * * root /path/to/log2iptables.sh -x 1 >> /var/log/log2iptables.log 2>&1
+*/5 * * * * root /path/to/log2iptables.sh -x 1 -w 1 >> /var/log/log2iptables.log 2>&1
 ```
 
-The lock file at `/var/run/log2iptables.lock` prevents overlapping runs. Stale locks (from crashed instances) are automatically detected and removed.
+Or run once per hour, looking at the last 2 hours (with overlap to tolerate missed runs):
+```
+0 * * * * root /path/to/log2iptables.sh -x 1 -w 2 >> /var/log/log2iptables.log 2>&1
+```
+
+The lock file at `/var/run/log2iptables.lock` prevents overlapping runs. It is created atomically (bash `noclobber`) to avoid race conditions. Stale locks from crashed instances are automatically detected and removed.
 
 ---
 
 ## Notifications
+
+Notifications are only sent in **production mode** (`-x 1`). Dry-run runs never send notifications.
 
 ### Telegram
 ```bash
@@ -209,14 +246,19 @@ Use `IPLISTCSV` (comma-separated) or `IPLISTPIPE` (pipe-separated) as placeholde
 
 ## Examples
 
-Block all SSH attackers with 3+ attempts, notify via Telegram:
+Block all SSH attackers with 3+ attempts in the last 24 hours, notify via Telegram:
 ```bash
-sudo ./log2iptables.sh -x 1 -l 3 -t 1 -T "TOKEN" -C "CHATID"
+sudo ./log2iptables.sh -x 1 -w 24 -l 3 -t 1 -T "TOKEN" -C "CHATID"
 ```
 
 Force journalctl for SSH, dry-run to preview:
 ```bash
 sudo ./log2iptables.sh -j ssh
+```
+
+Block from a web server access log (enables Nikto/404 patterns):
+```bash
+sudo ./log2iptables.sh -x 1 -f /var/log/nginx/access.log -w 24
 ```
 
 Legacy mode — custom regex, single pattern:
@@ -240,32 +282,33 @@ sudo ./log2iptables.sh -x 1 -d 87.251.64.147
 [DRY-RUN] No changes will be applied. Use -x 1 for production mode.
 
 Whitelist: 1 address(es) loaded from /etc/hosts.allow.
+WARN: Web scan patterns (Nikto, 404) require a web server access log.
+      Current log: /var/log/auth.log. Use -f /var/log/nginx/access.log to enable them.
+
 Log source: journalctl + /var/log/auth.log (auto-detect: reading both to ensure full coverage)
-Log lines read: 19284 (source: both)
+Time window: last 24 hour(s) only.
+Log lines read: 4821 (source: both)
 
-[Multi-pattern automatic mode — 9 active patterns]
+[Multi-pattern automatic mode — 11 active patterns]
 
-[Pattern] SSH bruteforce (threshold: 5) — 3 unique IP(s) seen
+[Pattern] SSH bruteforce (threshold: 5) — 2 unique IP(s) seen
 [Found] 87.251.64.147 matched 20 time(s) — above threshold
    `-- [Skip ] 87.251.64.147 already present in iptables.
    `-- [Skip ] 87.251.64.147 already present in /etc/hosts.deny.
 [Watch] 12.34.56.78 matched 2 time(s) — below threshold (5)
 
-[Pattern] SSH no auth (threshold: 10) — 0 unique IP(s) seen
-   `-- [Clean] No matches found.
+[Pattern] SSH invalid user (threshold: 5) — 1 unique IP(s) seen
+[Found] 203.0.113.5 matched 12 time(s) — above threshold
+   `-- [Add  ] 203.0.113.5 added to iptables (-j DROP) [DRY-RUN]
+   `-- [Add  ] 203.0.113.5 added to /etc/hosts.deny [DRY-RUN]
 
-[Pattern] PAM failure (threshold: 5) — 3 unique IP(s) seen
-[Found] 87.251.64.145 matched 16 time(s) — above threshold
-   `-- [Add  ] 87.251.64.145 added to iptables (-j DROP) [DRY-RUN]
-   `-- [Add  ] 87.251.64.145 added to /etc/hosts.deny [DRY-RUN]
+[Pattern] SSH disconnect preauth (threshold: 10) — 0 unique IP(s) seen
+   `-- [Clean] No matches found.
 
 [Currently blocked IPs]
    5 IP(s) currently blocked:
    [Block] 87.251.64.149  (iptables)
    [Block] 87.251.64.147  (iptables + hosts.deny)
-   [Block] 87.251.64.145  (iptables + hosts.deny)
-   [Block] 87.251.64.144  (iptables + hosts.deny)
-   [Block] 80.66.66.70    (iptables)
 
 Done.
 ```
@@ -304,7 +347,7 @@ Version 2 was a complete audit and rewrite of the internals, keeping full backwa
 - Added `journalctl` support (`-j`)
 - Added log source auto-detection (journalctl → auth.log fallback)
 - Graceful handling of missing optional binaries (curl, sendmail) with warnings instead of silent failures
-- Dry-run mode now consistently prevents all writes (iptables, hosts.deny, hosts.deny)
+- Dry-run mode now consistently prevents all writes (iptables, hosts.deny)
 
 **v2.1** replaced the single-pattern model with automatic multi-pattern detection:
 - Introduced four parallel arrays (`PATTERN_NAMES`, `PATTERN_REGEX`, `PATTERN_IPPOS`, `PATTERN_LIMIT`) replacing the pipe-delimited `PATTERNS` array — the `|` separator conflicted with regex alternations like `(f|F)` and `(\=| )`, silently corrupting patterns at parse time
@@ -321,6 +364,23 @@ Version 2 was a complete audit and rewrite of the internals, keeping full backwa
 - Auto-detect now reads `journalctl` + `auth.log` simultaneously in `both` mode; on Debian with rsyslog active, SSH/PAM/sudo logs are intercepted before journald sees them, causing journal-only mode to return zero auth matches despite 18000+ system lines
 - Merged sources are deduplicated via `sort -u` so each event is counted exactly once
 - Log lines output now includes the effective source mode (`source: both`, `file`, etc.)
+
+**v2.3** — security audit and coverage improvements:
+- **Fixed `is_in_hosts_deny` false positives**: replaced `grep -qF "$ip"` (substring match) with an anchored regex `grep -qE "^ALL:[[:space:]]*${ip}[[:space:]]*$"` — the old code would falsely skip blocking `1.1.1.1` if `1.1.1.10` was already present
+- **Fixed dry-run notifications**: Telegram, email, HTTP POST, and custom commands are now gated by `IPTABLESEXEC=1`; dry-run runs no longer send any notifications
+- **Fixed whitelist prefix-glob false positives**: removed the `[[ "$ip" == ${key}* ]]` prefix match which would accidentally whitelist `1.2.3.40` when `1.2.3.4` was in the whitelist; only exact and CIDR matches are now used
+- **Fixed lock file race condition**: replaced the TOCTOU-prone check-then-write sequence with an atomic `(set -C; echo $$ > "$LOCKFILE")` noclobber write
+- **Fixed `cidr_contains` input validation**: added bounds check on prefix length (must be 0–32) to prevent silent arithmetic errors on malformed CIDR entries
+- **Fixed journalctl auto-detect performance**: the initial line count now uses `-n 500` instead of reading the entire journal, avoiding multi-minute stalls on servers with large journals
+- **Fixed `sort -u` memory usage**: replaced with streaming `awk '!seen[$0]++'` deduplication in `both` mode — no longer loads the entire combined log into a sort buffer
+- **Fixed duplicate `declare -A addedip`**: removed the redundant declaration at line 522 (only one remains, before first use)
+- **Fixed `eval` command execution**: replaced `eval "$CMDREPLACE"` with `bash -c "$CMDREPLACE"` for explicit subprocess isolation
+- **Fixed `do_unblock` sed pattern**: anchored the sed pattern with `^` and `$` to prevent partial-line matches when removing hosts.deny entries
+- **Fixed `blocked_ips` grep in report section**: now uses anchored `^ALL:...$` pattern consistent with `is_in_hosts_deny`
+- **Added `-w <hours>` time window**: limits log analysis to the last N hours; uses `journalctl --since` for journal sources and syslog timestamp comparison for file sources; prevents ancient log entries from triggering new blocks
+- **Added SSH invalid user pattern**: detects `Invalid user <name> from <ip>` lines, a primary vector for automated credential scanning
+- **Added SSH disconnect preauth pattern**: detects `Disconnecting/Disconnected ... [preauth]` lines, typical signature of port scanners and brute-force tooling
+- **Added web pattern warning**: when web scan patterns are active but the log source is `auth.log` or `syslog`, a visible warning is printed explaining that those patterns require a web server access log
 
 ---
 
